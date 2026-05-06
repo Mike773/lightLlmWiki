@@ -57,6 +57,32 @@ python3.12 -m venv .venv
 Любое значение можно переопределить флагом командной строки —
 см. `--help` у каждой утилиты.
 
+## Кастомный провайдер через `lightllm_config.py`
+
+Если хочется подменить LLM или embedding (свой класс, не-OpenAI провайдер,
+локальный сервинг), создай в директории запуска файл
+`lightllm_config.py` — CLI автоматически его подхватит вместо env-флоу.
+
+```bash
+cp lightllm_config.example.py lightllm_config.py
+# отредактируй lightllm_config.py — DSN и фабрики
+light-llm-wiki-pipeline --document-id <ID>
+```
+
+Файл должен экспортировать:
+
+| Имя | Назначение |
+|---|---|
+| `dsn` (опционально) | DSN PostgreSQL. Если не задан — берётся из `--dsn` / env / дефолта. |
+| `get_llm()` (обязательно) | возвращает любой объект, реализующий `LLMClient` Protocol (`complete_text`, `complete_json`). |
+| `get_embeddings()` (опционально) | возвращает объект с методом `embed(text) -> list[float]`. Для query и стейджей `entities`/`relations`/`promote`/`wiki` обязательно. |
+
+Шаблон с комментариями — в `lightllm_config.example.py` (он
+коммитится). Сам `lightllm_config.py` в `.gitignore` — это локальная
+конфигурация, не для репозитория.
+
+Если файла нет — CLI работает по env-флоу, ничего не меняется.
+
 ## Загрузка документа
 
 Документ кладётся прямо в `llm_wiki_rag.documents`. Direction обязан
