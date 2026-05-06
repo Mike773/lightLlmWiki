@@ -28,6 +28,7 @@ _RETRY_INSTRUCTION = (
 )
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 def _extract_json(text: str) -> str:
@@ -53,6 +54,34 @@ def _extract_json(text: str) -> str:
             return text[start : end + 1].strip()
 
     return text.strip()
+
+
+def _parse_json_to_schema(json_text: str, schema: type[T]) -> T:
+    """Validate `json_text` against `schema` with progressively lenient parsers.
+
+    Order of attempts:
+    1. Pydantic's strict JSON validator — handles well-formed JSON quickly.
+    2. stdlib json.loads(strict=False) — accepts unescaped control
+       characters (\\x00-\\x1f) inside string values, which models sometimes
+       emit when echoing source text. Result is fed to model_validate.
+    3. Strip control characters and re-run Pydantic's validator.
+
+    Any remaining ValidationError / JSONDecodeError propagates so the
+    caller can put it into the retry feedback loop.
+    """
+    try:
+        return schema.model_validate_json(json_text)
+    except (ValidationError, json.JSONDecodeError, ValueError):
+        pass
+
+    try:
+        data = json.loads(json_text, strict=False)
+        return schema.model_validate(data)
+    except (ValidationError, json.JSONDecodeError, ValueError):
+        pass
+
+    cleaned = _CONTROL_CHARS_RE.sub("", json_text)
+    return schema.model_validate_json(cleaned)
 
 
 class OpenAIChatClient:
@@ -101,8 +130,8 @@ class OpenAIChatClient:
             json_text = _extract_json(content)
 
             try:
-                return schema.model_validate_json(json_text)
-            except (ValidationError, json.JSONDecodeError) as e:
+                return _parse_json_to_schema(json_text, schema)
+            except (ValidationError, json.JSONDecodeError, ValueError) as e:
                 last_error = e
                 if attempt == self._max_retries:
                     break
@@ -158,8 +187,8 @@ class FunctionLLMClient:
             json_text = _extract_json(content)
 
             try:
-                return schema.model_validate_json(json_text)
-            except (ValidationError, json.JSONDecodeError) as e:
+                return _parse_json_to_schema(json_text, schema)
+            except (ValidationError, json.JSONDecodeError, ValueError) as e:
                 last_error = e
                 if attempt == self._max_retries:
                     break

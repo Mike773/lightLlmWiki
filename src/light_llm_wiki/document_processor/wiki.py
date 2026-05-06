@@ -272,8 +272,15 @@ def _upsert_entity_page(
         relations_block=relations_block,
         documents_block=documents_block,
     )
-    result = inputs.llm.complete_json(prompt, WikiEntitySummary)
-    summary = result.summary.strip()
+    try:
+        result = inputs.llm.complete_json(prompt, WikiEntitySummary)
+        summary = result.summary.strip()
+    except Exception as e:
+        print(
+            f"[wiki] LLM failed on summary of {entity.name!r}: {e}; "
+            "leaving summary empty"
+        )
+        summary = ""
 
     content = _build_entity_page_content(entity, summary, relations, by_id, documents)
 
@@ -415,8 +422,15 @@ def _upsert_direction_page(
         relations_block=relations_block,
         documents_block=documents_block,
     )
-    result = inputs.llm.complete_json(prompt, WikiDirectionOverview)
-    overview = result.overview.strip()
+    try:
+        result = inputs.llm.complete_json(prompt, WikiDirectionOverview)
+        overview = result.overview.strip()
+    except Exception as e:
+        print(
+            f"[wiki] LLM failed on overview of direction "
+            f"{direction.name!r}: {e}; leaving overview empty"
+        )
+        overview = ""
 
     content = _build_direction_page_content(direction, overview, entities, documents)
 
@@ -547,7 +561,13 @@ def update_wiki(inputs: StageInputs) -> None:
         entity = by_id.get(entity_id)
         if entity is None:
             continue
-        _upsert_entity_page(inputs, doc.direction_key, entity, by_id, docs_by_id)
+        try:
+            _upsert_entity_page(inputs, doc.direction_key, entity, by_id, docs_by_id)
+        except Exception as e:
+            print(
+                f"[wiki] failed to build wiki page for entity "
+                f"{entity.name!r}: {e}; skipping"
+            )
 
     _upsert_document_page(inputs, doc.direction_key, doc, by_id)
 

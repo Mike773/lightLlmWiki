@@ -70,18 +70,37 @@ def extract_entities(inputs: StageInputs) -> None:
             name=name,
             abbreviations_block=abbrev_block,
         )
-        lookup = inputs.llm.complete_json(desc_prompt, EntityDescription)
+        try:
+            lookup = inputs.llm.complete_json(desc_prompt, EntityDescription)
+            description = lookup.description
+        except Exception as e:
+            print(
+                f"[entities] LLM failed on description of {name!r}: {e}; "
+                "leaving description empty"
+            )
+            description = None
 
-        embed_text = name if lookup.description is None else f"{name}\n\n{lookup.description}"
-        emb = inputs.embedder.embed(embed_text)
-        related = find_similar_entities(
-            inputs.conn, doc.direction_key, emb, limit=10
-        )
+        embed_text = name if description is None else f"{name}\n\n{description}"
+        try:
+            emb = inputs.embedder.embed(embed_text)
+        except Exception as e:
+            print(
+                f"[entities] embedder failed on {name!r}: {e}; "
+                "leaving embedding empty"
+            )
+            emb = None
+
+        if emb is not None:
+            related = find_similar_entities(
+                inputs.conn, doc.direction_key, emb, limit=10
+            )
+        else:
+            related = []
 
         update_stage_entity(
             inputs.conn,
             stage_id,
-            description=lookup.description,
+            description=description,
             related_entity_ids=[e.id for e in related],
             embedding=emb,
         )
