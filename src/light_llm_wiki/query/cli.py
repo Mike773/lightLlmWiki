@@ -35,6 +35,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="cosine distance threshold for embedding-fallback resolution (default: 0.5)",
     )
     parser.add_argument(
+        "--narrate",
+        action="store_true",
+        help=(
+            "instead of the structured trace, print a single LLM-generated "
+            "human narrative describing how the answer was reached. Adds "
+            "one extra LLM call."
+        ),
+    )
+    parser.add_argument(
         "--dsn",
         default=os.environ.get("DSN", DEFAULT_DSN),
         help=f"PostgreSQL DSN (default: env DSN or {DEFAULT_DSN})",
@@ -124,7 +133,13 @@ def main(argv: list[str] | None = None) -> None:
             args.direction,
             question,
             embedding_threshold=args.embedding_threshold,
+            narrate=args.narrate,
         )
-        sys.stdout.write(result.trace)
+        if args.narrate and result.story is not None:
+            sys.stdout.write(result.story)
+            if not result.story.endswith("\n"):
+                sys.stdout.write("\n")
+        else:
+            sys.stdout.write(result.trace)
     finally:
         conn.close()
