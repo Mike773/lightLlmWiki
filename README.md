@@ -74,8 +74,8 @@ light-llm-wiki-pipeline --document-id <ID>
 | Имя | Назначение |
 |---|---|
 | `dsn` (опционально) | DSN PostgreSQL. Если не задан — берётся из `--dsn` / env / дефолта. |
-| `get_llm()` (обязательно) | возвращает любой объект, реализующий `LLMClient` Protocol (`complete_text`, `complete_json`). |
-| `get_embeddings()` (опционально) | возвращает объект с методом `embed(text) -> list[float]`. Для query и стейджей `entities`/`relations`/`promote`/`wiki` обязательно. |
+| `get_llm()` (обязательно) | возвращает **callable** `(prompt: str) -> str` — одна chat-completion. CLI оборачивает её в retry-loop с pydantic-feedback'ом и JSON-extraction, тебе об этом думать не надо. |
+| `get_embeddings()` (опционально) | возвращает **callable** `(text: str) -> list[float]`. Для query и стейджей `entities`/`relations`/`promote`/`wiki` обязательно. |
 
 Шаблон с комментариями — в `lightllm_config.example.py` (он
 коммитится). Сам `lightllm_config.py` в `.gitignore` — это локальная

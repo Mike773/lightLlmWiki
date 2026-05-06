@@ -4,8 +4,8 @@ import os
 from light_llm_wiki.config import load_user_config
 from light_llm_wiki.db import get_connection
 from light_llm_wiki.document_processor.pipeline import StageInputs, run_stage
-from light_llm_wiki.embedding import OpenAIEmbeddingClient
-from light_llm_wiki.llm import OpenAIChatClient
+from light_llm_wiki.embedding import FunctionEmbeddingClient, OpenAIEmbeddingClient
+from light_llm_wiki.llm import FunctionLLMClient, OpenAIChatClient
 
 ALL_STAGES = ("abbreviations", "entities", "relations", "promote", "wiki")
 DEFAULT_DSN = "postgresql://postgres:postgres@localhost:5432/light_llm_wiki"
@@ -90,8 +90,11 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_user_config()
     if cfg is not None:
         dsn = getattr(cfg, "dsn", None) or args.dsn
-        llm = cfg.get_llm()
-        embedder = cfg.get_embeddings() if hasattr(cfg, "get_embeddings") else None
+        llm = FunctionLLMClient(cfg.get_llm(), max_retries=args.max_retries)
+        if hasattr(cfg, "get_embeddings"):
+            embedder = FunctionEmbeddingClient(cfg.get_embeddings())
+        else:
+            embedder = None
     else:
         api_key = os.environ.get("OPENAI_API_KEY")
         dsn = args.dsn
