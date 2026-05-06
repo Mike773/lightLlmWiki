@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 
+from light_llm_wiki.config import load_user_config
 from light_llm_wiki.db import get_connection
 from light_llm_wiki.embedding import OpenAIEmbeddingClient
 from light_llm_wiki.llm import OpenAIChatClient
@@ -59,15 +60,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("OPENAI_BASE_URL"),
         help="OpenAI-compatible endpoint URL (default: env OPENAI_BASE_URL or None)",
     )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=int(os.environ.get("LLM_MAX_RETRIES", "3")),
+        help="LLM JSON parsing retries on schema-validation failure (default: 3)",
+    )
+    parser.add_argument(
+        "--json-mode",
+        action="store_true",
+        default=os.environ.get("LLM_JSON_MODE", "").lower() in {"1", "true", "yes"},
+        help=(
+            "Send response_format={'type':'json_object'} to the chat API. "
+            "Off by default; enable only if your provider supports JSON mode."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        sys.exit("OPENAI_API_KEY is required")
 
     if args.question is not None:
         question = args.question
@@ -76,19 +88,34 @@ def main(argv: list[str] | None = None) -> None:
     if not question:
         sys.exit("question is empty")
 
-    llm = OpenAIChatClient(
-        model=args.chat_model,
-        base_url=args.openai_base_url,
-        api_key=api_key,
-    )
-    embedder = OpenAIEmbeddingClient(
-        model=args.embedding_model,
-        dimensions=args.embedding_dimensions,
-        base_url=args.openai_base_url,
-        api_key=api_key,
-    )
+    cfg = load_user_config()
+    if cfg is not None:
+        dsn = getattr(cfg, "dsn", None) or args.dsn
+        llm = cfg.get_llm()
+        if not hasattr(cfg, "get_embeddings"):
+            sys.exit(
+                "lightllm_config.py must define get_embeddings() for the query CLI "
+                "(it is required for embedding-fallback resolution)."
+            )
+        embedder = cfg.get_embeddings()
+    else:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        dsn = args.dsn
+        llm = OpenAIChatClient(
+            model=args.chat_model,
+            base_url=args.openai_base_url,
+            api_key=api_key,
+            max_retries=args.max_retries,
+            use_json_mode=args.json_mode,
+        )
+        embedder = OpenAIEmbeddingClient(
+            model=args.embedding_model,
+            dimensions=args.embedding_dimensions,
+            base_url=args.openai_base_url,
+            api_key=api_key,
+        )
 
-    conn = get_connection(args.dsn)
+    conn = get_connection(dsn)
     try:
         result = answer_question(
             conn,
