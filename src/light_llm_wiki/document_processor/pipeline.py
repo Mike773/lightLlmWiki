@@ -21,12 +21,14 @@ StageFn = Callable[[StageInputs], None]
 def _stages() -> dict[str, StageFn]:
     from light_llm_wiki.document_processor.abbreviations import extract_abbreviations
     from light_llm_wiki.document_processor.entities import extract_entities
+    from light_llm_wiki.document_processor.promote import promote_to_main
     from light_llm_wiki.document_processor.relations import extract_relations
 
     return {
         "abbreviations": extract_abbreviations,
         "entities": extract_entities,
         "relations": extract_relations,
+        "promote": promote_to_main,
     }
 
 
