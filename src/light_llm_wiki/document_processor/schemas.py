@@ -1,12 +1,12 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class AbbreviationsList(BaseModel):
-    items: list[str]
+    items: list[str] = Field(default_factory=list)
 
 
 class ExpansionLookup(BaseModel):
-    expansion: str | None
+    expansion: str | None = None
 
     @field_validator("expansion", mode="before")
     @classmethod
@@ -17,11 +17,11 @@ class ExpansionLookup(BaseModel):
 
 
 class EntitiesList(BaseModel):
-    items: list[str]
+    items: list[str] = Field(default_factory=list)
 
 
 class EntityDescription(BaseModel):
-    description: str | None
+    description: str | None = None
 
     @field_validator("description", mode="before")
     @classmethod
@@ -37,12 +37,12 @@ class RelationCandidate(BaseModel):
 
 
 class RelationCandidatesList(BaseModel):
-    items: list[RelationCandidate]
+    items: list[RelationCandidate] = Field(default_factory=list)
 
 
 class RelationLookup(BaseModel):
-    description: str | None
-    quote: str | None
+    description: str | None = None
+    quote: str | None = None
 
     @field_validator("description", "quote", mode="before")
     @classmethod
