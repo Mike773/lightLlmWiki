@@ -19,10 +19,11 @@ from light_llm_wiki.embedding import EmbeddingClient
 from light_llm_wiki.llm import LLMClient
 from light_llm_wiki.query.prompts import (
     ANSWER_PROMPT,
+    NARRATIVE_PROMPT,
     QUESTION_ABBREVIATIONS_PROMPT,
     QUESTION_ENTITIES_PROMPT,
 )
-from light_llm_wiki.query.schemas import QueryAnswer
+from light_llm_wiki.query.schemas import QueryAnswer, QueryStory
 
 
 @dataclass
@@ -44,6 +45,7 @@ class QueryResult:
     answer: str = ""
     unsupported: list[str] = field(default_factory=list)
     trace: str = ""
+    story: str | None = None
 
 
 def _resolve_one(
@@ -135,6 +137,18 @@ def _format_documents_block(documents: list[Document]) -> str:
     for d in documents:
         parts.append(f"### {d.title}\n{d.content}")
     return "\n\n".join(parts)
+
+
+def _format_missing_block(items: list[str]) -> str:
+    if not items:
+        return "(нет)"
+    return "\n".join(f"- {n}" for n in items)
+
+
+def _format_unsupported_block(items: list[str]) -> str:
+    if not items:
+        return "(нет — контекст покрывает вопрос полностью)"
+    return "\n".join(f"- {n}" for n in items)
 
 
 def _render_trace(result: QueryResult, by_id: dict[int, Entity]) -> str:
@@ -270,6 +284,7 @@ def answer_question(
     question: str,
     *,
     embedding_threshold: float = 0.5,
+    narrate: bool = False,
 ) -> QueryResult:
     result = QueryResult(question=question)
 
@@ -395,5 +410,33 @@ def answer_question(
     result.answer = answer_text
     result.unsupported = unsupported
     result.trace = _render_trace(result, by_id)
+
+    if narrate:
+        narrative_prompt = NARRATIVE_PROMPT.format(
+            question=question,
+            abbreviations_found_block=_format_abbreviations_block(
+                result.abbreviations_found
+            ),
+            abbreviations_missing_block=_format_missing_block(
+                result.abbreviations_missing
+            ),
+            entities_found_block=_format_entities_block(
+                result.entities_found, []
+            ),
+            entities_missing_block=_format_missing_block(result.entities_missing),
+            relations_block=relations_block,
+            documents_block=documents_block,
+            answer=answer_text,
+            unsupported_block=_format_unsupported_block(unsupported),
+        )
+        try:
+            story_obj = llm.complete_json(narrative_prompt, QueryStory)
+            result.story = story_obj.story.strip()
+        except Exception as e:
+            print(f"[query] LLM failed on the narrative: {e}")
+            result.story = (
+                "Не удалось собрать связный рассказ — модель вернула невалидный "
+                "ответ. Структурированная трасса доступна в поле trace."
+            )
 
     return result
