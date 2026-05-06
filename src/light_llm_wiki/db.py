@@ -74,6 +74,27 @@ class EntityRelation:
     created_at: datetime
 
 
+@dataclass
+class Direction:
+    key: str
+    name: str
+    description: str | None
+
+
+@dataclass
+class WikiPage:
+    id: int
+    direction_key: str
+    type: str
+    entity_id: int | None
+    document_id: int | None
+    title: str
+    content: str
+    related_page_ids: list[int]
+    entity_ids: list[int]
+    relation_ids: list[int]
+
+
 def get_document(conn: psycopg.Connection, document_id: int) -> Document:
     with conn.cursor() as cur:
         cur.execute(
@@ -445,4 +466,235 @@ def update_entity_relation(
             WHERE id = %s
             """,
             (description, document_id, quote, relation_id),
+        )
+
+
+def get_direction(conn: psycopg.Connection, key: str) -> Direction:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, name, description FROM llm_wiki_rag.directions WHERE key = %s",
+            (key,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise KeyError(f"direction {key!r} not found")
+    return Direction(*row)
+
+
+def list_entities_by_direction(
+    conn: psycopg.Connection, direction_key: str
+) -> list[Entity]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, name, description,
+                   is_abbreviation, has_expansion, created_at
+            FROM llm_wiki_rag.entities
+            WHERE direction_key = %s
+            ORDER BY id
+            """,
+            (direction_key,),
+        )
+        rows = cur.fetchall()
+    return [Entity(*row) for row in rows]
+
+
+def list_documents_by_direction(
+    conn: psycopg.Connection, direction_key: str
+) -> list[Document]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, title, status, content, use_chunking, created_at
+            FROM llm_wiki_rag.documents
+            WHERE direction_key = %s
+            ORDER BY id
+            """,
+            (direction_key,),
+        )
+        rows = cur.fetchall()
+    return [Document(*row) for row in rows]
+
+
+def list_entity_relations_by_entity(
+    conn: psycopg.Connection, entity_id: int
+) -> list[EntityRelation]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, source_entity_id, target_entity_id,
+                   relation_type, description, document_id, quote, created_at
+            FROM llm_wiki_rag.entity_relations
+            WHERE source_entity_id = %s OR target_entity_id = %s
+            ORDER BY id
+            """,
+            (entity_id, entity_id),
+        )
+        rows = cur.fetchall()
+    return [EntityRelation(*row) for row in rows]
+
+
+def list_entity_relations_by_direction(
+    conn: psycopg.Connection, direction_key: str
+) -> list[EntityRelation]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, source_entity_id, target_entity_id,
+                   relation_type, description, document_id, quote, created_at
+            FROM llm_wiki_rag.entity_relations
+            WHERE direction_key = %s
+            ORDER BY id
+            """,
+            (direction_key,),
+        )
+        rows = cur.fetchall()
+    return [EntityRelation(*row) for row in rows]
+
+
+def list_entity_relations_by_document(
+    conn: psycopg.Connection, document_id: int
+) -> list[EntityRelation]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, source_entity_id, target_entity_id,
+                   relation_type, description, document_id, quote, created_at
+            FROM llm_wiki_rag.entity_relations
+            WHERE document_id = %s
+            ORDER BY id
+            """,
+            (document_id,),
+        )
+        rows = cur.fetchall()
+    return [EntityRelation(*row) for row in rows]
+
+
+def find_wiki_page_for_entity(
+    conn: psycopg.Connection, direction_key: str, entity_id: int
+) -> WikiPage | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, entity_id, document_id, title,
+                   content, related_page_ids, entity_ids, relation_ids
+            FROM llm_wiki_rag.wiki_pages
+            WHERE direction_key = %s AND type = 'entity' AND entity_id = %s
+            """,
+            (direction_key, entity_id),
+        )
+        row = cur.fetchone()
+    return WikiPage(*row) if row else None
+
+
+def find_wiki_page_for_document(
+    conn: psycopg.Connection, direction_key: str, document_id: int
+) -> WikiPage | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, entity_id, document_id, title,
+                   content, related_page_ids, entity_ids, relation_ids
+            FROM llm_wiki_rag.wiki_pages
+            WHERE direction_key = %s AND type = 'document' AND document_id = %s
+            """,
+            (direction_key, document_id),
+        )
+        row = cur.fetchone()
+    return WikiPage(*row) if row else None
+
+
+def find_wiki_page_for_direction(
+    conn: psycopg.Connection, direction_key: str
+) -> WikiPage | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, entity_id, document_id, title,
+                   content, related_page_ids, entity_ids, relation_ids
+            FROM llm_wiki_rag.wiki_pages
+            WHERE direction_key = %s AND type = 'direction'
+            """,
+            (direction_key,),
+        )
+        row = cur.fetchone()
+    return WikiPage(*row) if row else None
+
+
+def insert_wiki_page(
+    conn: psycopg.Connection,
+    *,
+    direction_key: str,
+    type: str,
+    entity_id: int | None,
+    document_id: int | None,
+    title: str,
+    content: str,
+    related_page_ids: list[int],
+    entity_ids: list[int],
+    relation_ids: list[int],
+    embedding: list[float] | None = None,
+) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO llm_wiki_rag.wiki_pages
+                (direction_key, type, entity_id, document_id, title, content,
+                 related_page_ids, entity_ids, relation_ids, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                direction_key, type, entity_id, document_id, title, content,
+                related_page_ids, entity_ids, relation_ids, embedding,
+            ),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    return row[0]
+
+
+def update_wiki_page(
+    conn: psycopg.Connection,
+    page_id: int,
+    *,
+    title: str,
+    content: str,
+    related_page_ids: list[int],
+    entity_ids: list[int],
+    relation_ids: list[int],
+    embedding: list[float] | None = None,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE llm_wiki_rag.wiki_pages
+            SET title = %s,
+                content = %s,
+                related_page_ids = %s,
+                entity_ids = %s,
+                relation_ids = %s,
+                embedding = COALESCE(%s::vector, embedding)
+            WHERE id = %s
+            """,
+            (
+                title, content, related_page_ids, entity_ids, relation_ids,
+                embedding, page_id,
+            ),
+        )
+
+
+def update_wiki_page_related_ids(
+    conn: psycopg.Connection,
+    page_id: int,
+    related_page_ids: list[int],
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE llm_wiki_rag.wiki_pages
+            SET related_page_ids = %s
+            WHERE id = %s
+            """,
+            (related_page_ids, page_id),
         )
