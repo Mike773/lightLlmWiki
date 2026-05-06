@@ -4,8 +4,8 @@ import sys
 
 from light_llm_wiki.config import load_user_config
 from light_llm_wiki.db import get_connection
-from light_llm_wiki.embedding import OpenAIEmbeddingClient
-from light_llm_wiki.llm import OpenAIChatClient
+from light_llm_wiki.embedding import FunctionEmbeddingClient, OpenAIEmbeddingClient
+from light_llm_wiki.llm import FunctionLLMClient, OpenAIChatClient
 from light_llm_wiki.query.runner import answer_question
 
 DEFAULT_DSN = "postgresql://postgres:postgres@localhost:5432/light_llm_wiki"
@@ -91,13 +91,13 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_user_config()
     if cfg is not None:
         dsn = getattr(cfg, "dsn", None) or args.dsn
-        llm = cfg.get_llm()
+        llm = FunctionLLMClient(cfg.get_llm(), max_retries=args.max_retries)
         if not hasattr(cfg, "get_embeddings"):
             sys.exit(
                 "lightllm_config.py must define get_embeddings() for the query CLI "
                 "(it is required for embedding-fallback resolution)."
             )
-        embedder = cfg.get_embeddings()
+        embedder = FunctionEmbeddingClient(cfg.get_embeddings())
     else:
         api_key = os.environ.get("OPENAI_API_KEY")
         dsn = args.dsn

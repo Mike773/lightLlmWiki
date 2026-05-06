@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import Callable, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, ValidationError
 
@@ -112,6 +112,60 @@ class OpenAIChatClient:
                         "role": "user",
                         "content": _RETRY_INSTRUCTION.format(error=str(e)),
                     }
+                )
+
+        snippet = last_content[:500].rstrip()
+        raise RuntimeError(
+            f"complete_json: failed to obtain valid JSON for {schema.__name__} "
+            f"after {self._max_retries + 1} attempts. "
+            f"Last error: {last_error}\nLast response (truncated): {snippet}"
+        )
+
+
+class FunctionLLMClient:
+    """Adapt a plain (prompt: str) -> str callable to the LLMClient protocol.
+
+    Used by the CLI to wrap user-provided `get_llm()` from
+    `lightllm_config.py`. The wrapped callable does one chat completion;
+    the wrapper applies the same retry + JSON-extraction loop as
+    OpenAIChatClient, single-turn (the validator error is appended to
+    the prompt for the next attempt rather than sent as a separate
+    chat message, since the callable has no notion of message history).
+    """
+
+    def __init__(
+        self,
+        complete_fn: Callable[[str], str],
+        *,
+        max_retries: int = 3,
+    ) -> None:
+        self._fn = complete_fn
+        self._max_retries = max_retries
+
+    def complete_text(self, prompt: str) -> str:
+        return self._fn(prompt)
+
+    def complete_json(self, prompt: str, schema: type[T]) -> T:
+        schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        convo = f"{prompt}\n\n{_JSON_INSTRUCTION.format(schema_json=schema_json)}"
+
+        last_error: Exception | None = None
+        last_content: str = ""
+
+        for attempt in range(self._max_retries + 1):
+            content = self._fn(convo)
+            last_content = content
+            json_text = _extract_json(content)
+
+            try:
+                return schema.model_validate_json(json_text)
+            except (ValidationError, json.JSONDecodeError) as e:
+                last_error = e
+                if attempt == self._max_retries:
+                    break
+                convo = (
+                    f"{convo}\n\nПредыдущий ответ:\n{content}\n\n"
+                    f"{_RETRY_INSTRUCTION.format(error=str(e))}"
                 )
 
         snippet = last_content[:500].rstrip()

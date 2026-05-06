@@ -1,9 +1,23 @@
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 
 @runtime_checkable
 class EmbeddingClient(Protocol):
     def embed(self, text: str) -> list[float]: ...
+
+
+class FunctionEmbeddingClient:
+    """Adapt a plain (text: str) -> list[float] callable to EmbeddingClient.
+
+    Used by the CLI to wrap user-provided `get_embeddings()` from
+    `lightllm_config.py`.
+    """
+
+    def __init__(self, embed_fn: Callable[[str], list[float]]) -> None:
+        self._fn = embed_fn
+
+    def embed(self, text: str) -> list[float]:
+        return self._fn(text)
 
 
 class OpenAIEmbeddingClient:
