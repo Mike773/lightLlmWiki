@@ -39,11 +39,19 @@ def extract_abbreviations(inputs: StageInputs) -> None:
             inputs.conn, doc.direction_key, name
         )
         expansion_prompt = EXPANSION_PROMPT.format(content=doc.content, name=name)
-        lookup = inputs.llm.complete_json(expansion_prompt, ExpansionLookup)
+        try:
+            lookup = inputs.llm.complete_json(expansion_prompt, ExpansionLookup)
+            description = lookup.expansion
+        except Exception as e:
+            print(
+                f"[abbreviations] LLM failed on expansion of {name!r}: {e}; "
+                "leaving description empty"
+            )
+            description = None
         update_stage_entity(
             inputs.conn,
             stage_id,
-            description=lookup.expansion,
+            description=description,
             related_entity_ids=[e.id for e in matches],
         )
 

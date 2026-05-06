@@ -273,10 +273,15 @@ def answer_question(
 ) -> QueryResult:
     result = QueryResult(question=question)
 
-    abbr_extraction = llm.complete_json(
-        QUESTION_ABBREVIATIONS_PROMPT.format(question=question),
-        AbbreviationsList,
-    )
+    try:
+        abbr_extraction = llm.complete_json(
+            QUESTION_ABBREVIATIONS_PROMPT.format(question=question),
+            AbbreviationsList,
+        )
+    except Exception as e:
+        print(f"[query] LLM failed on extracting abbreviations: {e}; assuming none")
+        abbr_extraction = AbbreviationsList()
+
     for name in abbr_extraction.items:
         item = _resolve_one(
             conn, embedder, direction_key, "abbreviation", name, embedding_threshold
@@ -289,13 +294,18 @@ def answer_question(
     abbr_block_for_entities = _format_abbreviations_to_exclude(
         result.abbreviations_found, result.abbreviations_missing
     )
-    ent_extraction = llm.complete_json(
-        QUESTION_ENTITIES_PROMPT.format(
-            question=question,
-            abbreviations_to_exclude=abbr_block_for_entities,
-        ),
-        EntitiesList,
-    )
+    try:
+        ent_extraction = llm.complete_json(
+            QUESTION_ENTITIES_PROMPT.format(
+                question=question,
+                abbreviations_to_exclude=abbr_block_for_entities,
+            ),
+            EntitiesList,
+        )
+    except Exception as e:
+        print(f"[query] LLM failed on extracting entities: {e}; assuming none")
+        ent_extraction = EntitiesList()
+
     for name in ent_extraction.items:
         item = _resolve_one(
             conn, embedder, direction_key, "entity", name, embedding_threshold
@@ -358,21 +368,32 @@ def answer_question(
     relations_block = _format_relations_block(relations, by_id)
     documents_block = _format_documents_block(documents)
 
-    answer_obj = llm.complete_json(
-        ANSWER_PROMPT.format(
-            question=question,
-            abbreviations_block=abbreviations_block,
-            entities_block=entities_block,
-            relations_block=relations_block,
-            documents_block=documents_block,
-        ),
-        QueryAnswer,
-    )
+    try:
+        answer_obj = llm.complete_json(
+            ANSWER_PROMPT.format(
+                question=question,
+                abbreviations_block=abbreviations_block,
+                entities_block=entities_block,
+                relations_block=relations_block,
+                documents_block=documents_block,
+            ),
+            QueryAnswer,
+        )
+        answer_text = answer_obj.answer
+        unsupported = answer_obj.unsupported
+    except Exception as e:
+        print(f"[query] LLM failed on the final answer: {e}")
+        answer_text = (
+            "Не удалось получить ответ от модели — возможно, контекст слишком "
+            "велик или модель вернула невалидный JSON. Сырые материалы по "
+            "вопросу собраны выше в трассе."
+        )
+        unsupported = []
 
     result.relations = relations
     result.documents = documents
-    result.answer = answer_obj.answer
-    result.unsupported = answer_obj.unsupported
+    result.answer = answer_text
+    result.unsupported = unsupported
     result.trace = _render_trace(result, by_id)
 
     return result

@@ -50,7 +50,14 @@ def extract_relations(inputs: StageInputs) -> None:
             source_name=source.name,
             entities_block=entities_block,
         )
-        candidates = inputs.llm.complete_json(prompt, RelationCandidatesList)
+        try:
+            candidates = inputs.llm.complete_json(prompt, RelationCandidatesList)
+        except Exception as e:
+            print(
+                f"[relations] LLM failed on candidates for {source.name!r}: {e}; "
+                "skipping its relations"
+            )
+            continue
 
         for cand in candidates.items:
             target_id = cand.target_id
@@ -79,7 +86,15 @@ def extract_relations(inputs: StageInputs) -> None:
             target_name=target.name,
             relation_type=relation_type,
         )
-        lookup = inputs.llm.complete_json(prompt, RelationLookup)
+        try:
+            lookup = inputs.llm.complete_json(prompt, RelationLookup)
+        except Exception as e:
+            print(
+                f"[relations] LLM failed on description "
+                f"{source.name!r} -> {target.name!r}: {e}; dropping the relation"
+            )
+            delete_stage_relation(inputs.conn, stage_id)
+            continue
 
         if lookup.quote is None:
             delete_stage_relation(inputs.conn, stage_id)
