@@ -3,36 +3,35 @@ import os
 import sys
 
 from light_llm_wiki.db import get_connection
-from light_llm_wiki.document_processor.pipeline import StageInputs, run_stage
 from light_llm_wiki.embedding import OpenAIEmbeddingClient
 from light_llm_wiki.llm import OpenAIChatClient
+from light_llm_wiki.query.runner import answer_question
 
-ALL_STAGES = ("abbreviations", "entities", "relations", "promote", "wiki")
 DEFAULT_DSN = "postgresql://postgres:postgres@localhost:5432/light_llm_wiki"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="light-llm-wiki-pipeline",
+        prog="light-llm-wiki-query",
         description=(
-            "Run the document_processor pipeline against a document already "
-            "loaded into llm_wiki_rag.documents."
+            "Ask a natural-language question against the knowledge base "
+            "for a given direction."
         ),
     )
     parser.add_argument(
-        "--document-id",
+        "--direction",
         required=True,
-        type=int,
-        help="id of a row in llm_wiki_rag.documents",
+        help="direction key (must exist in llm_wiki_rag.directions)",
     )
     parser.add_argument(
-        "--stage",
-        choices=(*ALL_STAGES, "all"),
-        default="all",
-        help=(
-            f"stage to run; one of {', '.join(ALL_STAGES)}, or 'all' "
-            "to run every stage in order (default: all)"
-        ),
+        "--question",
+        help="the question text; if omitted, it is read from stdin",
+    )
+    parser.add_argument(
+        "--embedding-threshold",
+        type=float,
+        default=0.5,
+        help="cosine distance threshold for embedding-fallback resolution (default: 0.5)",
     )
     parser.add_argument(
         "--dsn",
@@ -70,11 +69,12 @@ def main(argv: list[str] | None = None) -> None:
     if not api_key:
         sys.exit("OPENAI_API_KEY is required")
 
-    stages_to_run: tuple[str, ...]
-    if args.stage == "all":
-        stages_to_run = ALL_STAGES
+    if args.question is not None:
+        question = args.question
     else:
-        stages_to_run = (args.stage,)
+        question = sys.stdin.read().strip()
+    if not question:
+        sys.exit("question is empty")
 
     llm = OpenAIChatClient(
         model=args.chat_model,
@@ -90,12 +90,14 @@ def main(argv: list[str] | None = None) -> None:
 
     conn = get_connection(args.dsn)
     try:
-        inputs = StageInputs(
-            conn=conn, llm=llm, embedder=embedder, document_id=args.document_id
+        result = answer_question(
+            conn,
+            llm,
+            embedder,
+            args.direction,
+            question,
+            embedding_threshold=args.embedding_threshold,
         )
-        for stage in stages_to_run:
-            print(f"=== running stage {stage!r} on document {args.document_id} ===")
-            run_stage(stage, inputs)
-        print("done")
+        sys.stdout.write(result.trace)
     finally:
         conn.close()
