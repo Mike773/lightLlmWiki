@@ -205,6 +205,77 @@ def update_stage_entity(
         )
 
 
+def get_entity_by_name_ci(
+    conn: psycopg.Connection, direction_key: str, type_: str, name: str
+) -> Entity | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, name, description,
+                   is_abbreviation, has_expansion, created_at
+            FROM llm_wiki_rag.entities
+            WHERE direction_key = %s
+              AND type = %s
+              AND lower(name) = lower(%s)
+            ORDER BY id
+            LIMIT 1
+            """,
+            (direction_key, type_, name),
+        )
+        row = cur.fetchone()
+    return Entity(*row) if row else None
+
+
+def find_nearest_entity_by_type(
+    conn: psycopg.Connection,
+    direction_key: str,
+    type_: str,
+    embedding: list[float],
+    max_distance: float,
+) -> Entity | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, name, description,
+                   is_abbreviation, has_expansion, created_at,
+                   embedding <=> %s::vector AS distance
+            FROM llm_wiki_rag.entities
+            WHERE direction_key = %s
+              AND type = %s
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT 1
+            """,
+            (embedding, direction_key, type_, embedding),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    distance = row[-1]
+    if distance is None or distance > max_distance:
+        return None
+    return Entity(*row[:-1])
+
+
+def list_documents_by_ids(
+    conn: psycopg.Connection, document_ids: list[int]
+) -> list[Document]:
+    if not document_ids:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, title, status, content, use_chunking, created_at
+            FROM llm_wiki_rag.documents
+            WHERE id = ANY(%s)
+            ORDER BY id
+            """,
+            (document_ids,),
+        )
+        rows = cur.fetchall()
+    return [Document(*row) for row in rows]
+
+
 def find_similar_entities(
     conn: psycopg.Connection,
     direction_key: str,
