@@ -55,11 +55,15 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.entity_relations (
 CREATE TABLE IF NOT EXISTS llm_wiki_rag.wiki_pages (
     id                BIGSERIAL PRIMARY KEY,
     direction_key     TEXT NOT NULL REFERENCES llm_wiki_rag.directions(key),
+    type              TEXT NOT NULL,
+    entity_id         BIGINT REFERENCES llm_wiki_rag.entities(id) ON DELETE SET NULL,
+    document_id       BIGINT REFERENCES llm_wiki_rag.documents(id) ON DELETE SET NULL,
     title             TEXT NOT NULL,
     content           TEXT NOT NULL,
     related_page_ids  BIGINT[] NOT NULL DEFAULT '{}',
     entity_ids        BIGINT[] NOT NULL DEFAULT '{}',
     relation_ids      BIGINT[] NOT NULL DEFAULT '{}',
+    embedding         vector(2560),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -92,3 +96,15 @@ ALTER TABLE llm_wiki_rag.stage_entities
 
 ALTER TABLE llm_wiki_rag.stage_relations
     ADD COLUMN IF NOT EXISTS quote TEXT;
+
+ALTER TABLE llm_wiki_rag.wiki_pages
+    ADD COLUMN IF NOT EXISTS type TEXT;
+
+ALTER TABLE llm_wiki_rag.wiki_pages
+    ADD COLUMN IF NOT EXISTS entity_id BIGINT REFERENCES llm_wiki_rag.entities(id) ON DELETE SET NULL;
+
+ALTER TABLE llm_wiki_rag.wiki_pages
+    ADD COLUMN IF NOT EXISTS document_id BIGINT REFERENCES llm_wiki_rag.documents(id) ON DELETE SET NULL;
+
+ALTER TABLE llm_wiki_rag.wiki_pages
+    ADD COLUMN IF NOT EXISTS embedding vector(2560);

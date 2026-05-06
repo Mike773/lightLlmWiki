@@ -50,3 +50,11 @@ class RelationLookup(BaseModel):
         if isinstance(value, str) and value.strip().lower() in {"", "null", "none"}:
             return None
         return value
+
+
+class WikiEntitySummary(BaseModel):
+    summary: str
+
+
+class WikiDirectionOverview(BaseModel):
+    overview: str
