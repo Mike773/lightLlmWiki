@@ -27,3 +27,56 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.document_chunks (
     content      TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS llm_wiki_rag.entities (
+    id               BIGSERIAL PRIMARY KEY,
+    direction_key    TEXT NOT NULL REFERENCES llm_wiki_rag.directions(key),
+    type             TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    description      TEXT,
+    is_abbreviation  BOOLEAN NOT NULL DEFAULT false,
+    has_expansion    BOOLEAN NOT NULL DEFAULT false,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS llm_wiki_rag.entity_relations (
+    id                BIGSERIAL PRIMARY KEY,
+    direction_key     TEXT NOT NULL REFERENCES llm_wiki_rag.directions(key),
+    source_entity_id  BIGINT NOT NULL REFERENCES llm_wiki_rag.entities(id) ON DELETE CASCADE,
+    target_entity_id  BIGINT NOT NULL REFERENCES llm_wiki_rag.entities(id) ON DELETE CASCADE,
+    relation_type     TEXT NOT NULL,
+    description       TEXT,
+    document_id       BIGINT REFERENCES llm_wiki_rag.documents(id) ON DELETE SET NULL,
+    quote             TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS llm_wiki_rag.wiki_pages (
+    id                BIGSERIAL PRIMARY KEY,
+    direction_key     TEXT NOT NULL REFERENCES llm_wiki_rag.directions(key),
+    title             TEXT NOT NULL,
+    content           TEXT NOT NULL,
+    related_page_ids  BIGINT[] NOT NULL DEFAULT '{}',
+    entity_ids        BIGINT[] NOT NULL DEFAULT '{}',
+    relation_ids      BIGINT[] NOT NULL DEFAULT '{}',
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS llm_wiki_rag.stage_entities (
+    id                     BIGSERIAL PRIMARY KEY,
+    type                   TEXT NOT NULL,
+    name                   TEXT NOT NULL,
+    description            TEXT,
+    related_entity_ids     BIGINT[] NOT NULL DEFAULT '{}',
+    related_wiki_page_ids  BIGINT[] NOT NULL DEFAULT '{}',
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS llm_wiki_rag.stage_relations (
+    id                BIGSERIAL PRIMARY KEY,
+    source_stage_id   BIGINT NOT NULL REFERENCES llm_wiki_rag.stage_entities(id) ON DELETE CASCADE,
+    target_stage_id   BIGINT NOT NULL REFERENCES llm_wiki_rag.stage_entities(id) ON DELETE CASCADE,
+    relation_type     TEXT NOT NULL,
+    description       TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
