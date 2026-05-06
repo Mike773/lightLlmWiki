@@ -1,10 +1,9 @@
 from pydantic import BaseModel
 
 
-class AbbreviationItem(BaseModel):
-    name: str
+class AbbreviationsList(BaseModel):
+    items: list[str]
+
+
+class ExpansionLookup(BaseModel):
     expansion: str | None
-
-
-class AbbreviationsExtraction(BaseModel):
-    items: list[AbbreviationItem]

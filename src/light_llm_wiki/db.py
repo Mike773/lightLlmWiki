@@ -93,3 +93,22 @@ def insert_stage_entity(
         row = cur.fetchone()
     assert row is not None
     return row[0]
+
+
+def update_stage_entity(
+    conn: psycopg.Connection,
+    stage_id: int,
+    *,
+    description: str | None,
+    related_entity_ids: list[int],
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE llm_wiki_rag.stage_entities
+            SET description = %s,
+                related_entity_ids = %s
+            WHERE id = %s
+            """,
+            (description, related_entity_ids, stage_id),
+        )
