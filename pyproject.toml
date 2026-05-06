@@ -10,6 +10,10 @@ dependencies = [
     "openai>=1.40",
 ]
 
+[project.scripts]
+light-llm-wiki-pipeline = "light_llm_wiki.document_processor.cli:main"
+light-llm-wiki-query = "light_llm_wiki.query.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
