@@ -34,6 +34,24 @@ class Entity:
     created_at: datetime
 
 
+@dataclass
+class StageEntity:
+    id: int
+    type: str
+    name: str
+    description: str | None
+
+
+@dataclass
+class StageRelation:
+    id: int
+    source_stage_id: int
+    target_stage_id: int
+    relation_type: str
+    description: str | None
+    quote: str | None
+
+
 def get_document(conn: psycopg.Connection, document_id: int) -> Document:
     with conn.cursor() as cur:
         cur.execute(
@@ -165,3 +183,72 @@ def find_similar_entities(
         )
         rows = cur.fetchall()
     return [Entity(*row) for row in rows]
+
+
+def list_stage_entities(conn: psycopg.Connection) -> list[StageEntity]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, type, name, description
+            FROM llm_wiki_rag.stage_entities
+            ORDER BY id
+            """
+        )
+        rows = cur.fetchall()
+    return [StageEntity(*row) for row in rows]
+
+
+def clear_stage_relations(conn: psycopg.Connection) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM llm_wiki_rag.stage_relations")
+
+
+def insert_stage_relation(
+    conn: psycopg.Connection,
+    *,
+    source_stage_id: int,
+    target_stage_id: int,
+    relation_type: str,
+    description: str | None = None,
+    quote: str | None = None,
+) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO llm_wiki_rag.stage_relations
+                (source_stage_id, target_stage_id, relation_type, description, quote)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (source_stage_id, target_stage_id, relation_type, description, quote),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    return row[0]
+
+
+def update_stage_relation(
+    conn: psycopg.Connection,
+    stage_id: int,
+    *,
+    description: str | None,
+    quote: str | None,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE llm_wiki_rag.stage_relations
+            SET description = %s,
+                quote = %s
+            WHERE id = %s
+            """,
+            (description, quote, stage_id),
+        )
+
+
+def delete_stage_relation(conn: psycopg.Connection, stage_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM llm_wiki_rag.stage_relations WHERE id = %s",
+            (stage_id,),
+        )
