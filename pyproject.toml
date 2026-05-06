@@ -1,0 +1,9 @@
+[project]
+name = "light-llm-wiki"
+version = "0.1.0"
+description = "Knowledge base for analyst agent (direction-isolated, PostgreSQL + pgvector)"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
