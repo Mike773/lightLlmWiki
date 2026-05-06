@@ -27,4 +27,7 @@ def _stages() -> dict[str, StageFn]:
 
 
 def run_stage(name: str, inputs: StageInputs) -> None:
-    raise NotImplementedError
+    stages = _stages()
+    if name not in stages:
+        raise ValueError(f"unknown stage: {name!r}; available: {sorted(stages)}")
+    stages[name](inputs)
