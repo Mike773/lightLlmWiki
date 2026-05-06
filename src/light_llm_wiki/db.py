@@ -2,10 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import psycopg
+from pgvector.psycopg import register_vector
 
 
 def get_connection(dsn: str) -> psycopg.Connection:
-    return psycopg.connect(dsn)
+    conn = psycopg.connect(dsn)
+    register_vector(conn)
+    return conn
 
 
 @dataclass
@@ -72,6 +75,30 @@ def clear_stage(conn: psycopg.Connection) -> None:
         cur.execute("DELETE FROM llm_wiki_rag.stage_entities")
 
 
+def clear_stage_by_type(conn: psycopg.Connection, type_: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM llm_wiki_rag.stage_entities WHERE type = %s",
+            (type_,),
+        )
+
+
+def list_stage_abbreviations(
+    conn: psycopg.Connection,
+) -> list[tuple[str, str | None]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT name, description
+            FROM llm_wiki_rag.stage_entities
+            WHERE type = 'abbreviation'
+            ORDER BY id
+            """
+        )
+        rows = cur.fetchall()
+    return [(name, description) for name, description in rows]
+
+
 def insert_stage_entity(
     conn: psycopg.Connection,
     *,
@@ -79,16 +106,17 @@ def insert_stage_entity(
     name: str,
     description: str | None,
     related_entity_ids: list[int],
+    embedding: list[float] | None = None,
 ) -> int:
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO llm_wiki_rag.stage_entities
-                (type, name, description, related_entity_ids)
-            VALUES (%s, %s, %s, %s)
+                (type, name, description, related_entity_ids, embedding)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (type, name, description, related_entity_ids),
+            (type, name, description, related_entity_ids, embedding),
         )
         row = cur.fetchone()
     assert row is not None
@@ -101,14 +129,39 @@ def update_stage_entity(
     *,
     description: str | None,
     related_entity_ids: list[int],
+    embedding: list[float] | None = None,
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE llm_wiki_rag.stage_entities
             SET description = %s,
-                related_entity_ids = %s
+                related_entity_ids = %s,
+                embedding = COALESCE(%s::vector, embedding)
             WHERE id = %s
             """,
-            (description, related_entity_ids, stage_id),
+            (description, related_entity_ids, embedding, stage_id),
         )
+
+
+def find_similar_entities(
+    conn: psycopg.Connection,
+    direction_key: str,
+    embedding: list[float],
+    limit: int = 10,
+) -> list[Entity]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, name, description,
+                   is_abbreviation, has_expansion, created_at
+            FROM llm_wiki_rag.entities
+            WHERE direction_key = %s
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (direction_key, embedding, limit),
+        )
+        rows = cur.fetchall()
+    return [Entity(*row) for row in rows]

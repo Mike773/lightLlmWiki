@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.entities (
     description      TEXT,
     is_abbreviation  BOOLEAN NOT NULL DEFAULT false,
     has_expansion    BOOLEAN NOT NULL DEFAULT false,
+    embedding        vector(2560),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.stage_entities (
     description            TEXT,
     related_entity_ids     BIGINT[] NOT NULL DEFAULT '{}',
     related_wiki_page_ids  BIGINT[] NOT NULL DEFAULT '{}',
+    embedding              vector(2560),
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -80,3 +82,9 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.stage_relations (
     description       TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE llm_wiki_rag.entities
+    ADD COLUMN IF NOT EXISTS embedding vector(2560);
+
+ALTER TABLE llm_wiki_rag.stage_entities
+    ADD COLUMN IF NOT EXISTS embedding vector(2560);
