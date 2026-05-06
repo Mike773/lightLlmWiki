@@ -14,3 +14,18 @@ class ExpansionLookup(BaseModel):
         if isinstance(value, str) and value.strip().lower() in {"", "null", "none"}:
             return None
         return value
+
+
+class EntitiesList(BaseModel):
+    items: list[str]
+
+
+class EntityDescription(BaseModel):
+    description: str | None
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _normalize_missing(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() in {"", "null", "none"}:
+            return None
+        return value

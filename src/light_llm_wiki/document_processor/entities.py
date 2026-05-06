@@ -1,0 +1,89 @@
+from light_llm_wiki.db import (
+    clear_stage_by_type,
+    find_similar_entities,
+    get_document,
+    insert_stage_entity,
+    list_stage_abbreviations,
+    update_stage_entity,
+)
+from light_llm_wiki.document_processor.pipeline import StageInputs
+from light_llm_wiki.document_processor.prompts import (
+    ENTITIES_PROMPT,
+    ENTITY_DESCRIPTION_PROMPT,
+)
+from light_llm_wiki.document_processor.schemas import (
+    EntitiesList,
+    EntityDescription,
+)
+
+
+def _format_abbreviations_block(items: list[tuple[str, str | None]]) -> str:
+    if not items:
+        return "(в документе аббревиатур не обнаружено)"
+    lines = []
+    for name, description in items:
+        if description is None:
+            lines.append(f"- {name} — расшифровка не найдена в документе")
+        else:
+            lines.append(f"- {name} — {description}")
+    return "\n".join(lines)
+
+
+def _format_abbreviations_exclude_block(items: list[tuple[str, str | None]]) -> str:
+    if not items:
+        return "(в документе аббревиатур не обнаружено)"
+    return "\n".join(f"- {name}" for name, _ in items)
+
+
+def extract_entities(inputs: StageInputs) -> None:
+    if inputs.embedder is None:
+        raise ValueError("entities stage requires an embedder")
+
+    doc = get_document(inputs.conn, inputs.document_id)
+    abbreviations = list_stage_abbreviations(inputs.conn)
+    abbrev_block = _format_abbreviations_block(abbreviations)
+    abbrev_exclude_block = _format_abbreviations_exclude_block(abbreviations)
+
+    names_prompt = ENTITIES_PROMPT.format(
+        content=doc.content,
+        abbreviations_to_exclude=abbrev_exclude_block,
+    )
+    extraction = inputs.llm.complete_json(names_prompt, EntitiesList)
+
+    clear_stage_by_type(inputs.conn, "entity")
+
+    stage_items: list[tuple[int, str]] = []
+    for name in extraction.items:
+        stage_id = insert_stage_entity(
+            inputs.conn,
+            type="entity",
+            name=name,
+            description=None,
+            related_entity_ids=[],
+            embedding=None,
+        )
+        stage_items.append((stage_id, name))
+
+    for stage_id, name in stage_items:
+        desc_prompt = ENTITY_DESCRIPTION_PROMPT.format(
+            content=doc.content,
+            name=name,
+            abbreviations_block=abbrev_block,
+        )
+        lookup = inputs.llm.complete_json(desc_prompt, EntityDescription)
+
+        embed_text = name if lookup.description is None else f"{name}\n\n{lookup.description}"
+        emb = inputs.embedder.embed(embed_text)
+        related = find_similar_entities(
+            inputs.conn, doc.direction_key, emb, limit=10
+        )
+
+        update_stage_entity(
+            inputs.conn,
+            stage_id,
+            description=lookup.description,
+            related_entity_ids=[e.id for e in related],
+            embedding=emb,
+        )
+
+    inputs.conn.commit()
