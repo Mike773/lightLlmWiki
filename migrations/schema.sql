@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.stage_relations (
     target_stage_id   BIGINT NOT NULL REFERENCES llm_wiki_rag.stage_entities(id) ON DELETE CASCADE,
     relation_type     TEXT NOT NULL,
     description       TEXT,
+    quote             TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -88,3 +89,6 @@ ALTER TABLE llm_wiki_rag.entities
 
 ALTER TABLE llm_wiki_rag.stage_entities
     ADD COLUMN IF NOT EXISTS embedding vector(2560);
+
+ALTER TABLE llm_wiki_rag.stage_relations
+    ADD COLUMN IF NOT EXISTS quote TEXT;

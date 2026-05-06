@@ -29,3 +29,24 @@ class EntityDescription(BaseModel):
         if isinstance(value, str) and value.strip().lower() in {"", "null", "none"}:
             return None
         return value
+
+
+class RelationCandidate(BaseModel):
+    target_id: int
+    relation_type: str
+
+
+class RelationCandidatesList(BaseModel):
+    items: list[RelationCandidate]
+
+
+class RelationLookup(BaseModel):
+    description: str | None
+    quote: str | None
+
+    @field_validator("description", "quote", mode="before")
+    @classmethod
+    def _normalize_missing(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() in {"", "null", "none"}:
+            return None
+        return value
