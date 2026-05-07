@@ -7,8 +7,9 @@ class AbbreviationsList(BaseModel):
 
 class ExpansionLookup(BaseModel):
     expansion: str | None = None
+    quote: str | None = None
 
-    @field_validator("expansion", mode="before")
+    @field_validator("expansion", "quote", mode="before")
     @classmethod
     def _normalize_missing(cls, value: object) -> object:
         if isinstance(value, str) and value.strip().lower() in {"", "null", "none"}:

@@ -641,6 +641,58 @@ def list_entity_relations_by_document(
     return [EntityRelation(*row) for row in rows]
 
 
+def upsert_entity_document(
+    conn: psycopg.Connection, entity_id: int, document_id: int
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO llm_wiki_rag.entity_documents (entity_id, document_id)
+            VALUES (%s, %s)
+            ON CONFLICT (entity_id, document_id) DO NOTHING
+            """,
+            (entity_id, document_id),
+        )
+
+
+def list_documents_for_entity(
+    conn: psycopg.Connection, entity_id: int
+) -> list[Document]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT d.id, d.direction_key, d.title, d.status,
+                   d.content, d.use_chunking, d.created_at
+            FROM llm_wiki_rag.entity_documents ed
+            JOIN llm_wiki_rag.documents d ON d.id = ed.document_id
+            WHERE ed.entity_id = %s
+            ORDER BY d.id
+            """,
+            (entity_id,),
+        )
+        rows = cur.fetchall()
+    return [Document(*row) for row in rows]
+
+
+def list_entities_for_document(
+    conn: psycopg.Connection, document_id: int
+) -> list[Entity]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT e.id, e.direction_key, e.type, e.name, e.description,
+                   e.is_abbreviation, e.has_expansion, e.created_at
+            FROM llm_wiki_rag.entity_documents ed
+            JOIN llm_wiki_rag.entities e ON e.id = ed.entity_id
+            WHERE ed.document_id = %s
+            ORDER BY e.id
+            """,
+            (document_id,),
+        )
+        rows = cur.fetchall()
+    return [Entity(*row) for row in rows]
+
+
 def find_wiki_page_for_entity(
     conn: psycopg.Connection, direction_key: str, entity_id: int
 ) -> WikiPage | None:

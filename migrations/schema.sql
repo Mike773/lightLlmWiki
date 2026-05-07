@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS llm_wiki_rag.entities (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS llm_wiki_rag.entity_documents (
+    entity_id    BIGINT NOT NULL REFERENCES llm_wiki_rag.entities(id) ON DELETE CASCADE,
+    document_id  BIGINT NOT NULL REFERENCES llm_wiki_rag.documents(id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (entity_id, document_id)
+);
+
 CREATE TABLE IF NOT EXISTS llm_wiki_rag.entity_relations (
     id                BIGSERIAL PRIMARY KEY,
     direction_key     TEXT NOT NULL REFERENCES llm_wiki_rag.directions(key),
