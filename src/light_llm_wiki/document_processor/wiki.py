@@ -82,6 +82,23 @@ def _build_documents_block_for_prompt(documents: list[Document]) -> str:
     return "\n".join(f"- {d.title}" for d in documents)
 
 
+def _build_documents_block_for_direction(documents: list[Document]) -> str:
+    if not documents:
+        return "(документов нет)"
+    lines: list[str] = []
+    for d in documents:
+        lines.append(f"- {d.title}")
+        snippet = (d.content or "").strip()
+        if snippet:
+            snippet = " ".join(snippet.split())
+            if len(snippet) > 400:
+                snippet = snippet[:397] + "..."
+            lines.append(f"  фрагмент: {snippet}")
+        else:
+            lines.append("  фрагмент: (содержимое не зафиксировано)")
+    return "\n".join(lines)
+
+
 def _build_entity_page_content(
     entity: Entity,
     summary: str,
@@ -412,8 +429,7 @@ def _upsert_direction_page(
         relations_block_lines.append(line)
     relations_block = "\n".join(relations_block_lines) if relations_block_lines else "(связей нет)"
 
-    documents_block_lines = [f"- {d.title}" for d in documents]
-    documents_block = "\n".join(documents_block_lines) if documents_block_lines else "(документов нет)"
+    documents_block = _build_documents_block_for_direction(documents)
 
     prompt = WIKI_DIRECTION_OVERVIEW_PROMPT.format(
         direction_name=direction.name,
