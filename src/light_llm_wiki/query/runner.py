@@ -6,8 +6,11 @@ from light_llm_wiki.db import (
     Document,
     Entity,
     EntityRelation,
+    WikiPage,
     find_nearest_entity_by_type,
+    find_similar_wiki_pages,
     get_entity_by_name_ci,
+    list_documents_by_direction,
     list_documents_by_ids,
     list_documents_for_entity,
     list_entity_relations_by_entity,
@@ -20,11 +23,17 @@ from light_llm_wiki.embedding import EmbeddingClient
 from light_llm_wiki.llm import LLMClient
 from light_llm_wiki.query.prompts import (
     ANSWER_PROMPT,
+    DEEP_DOC_RELEVANCE_PROMPT,
     NARRATIVE_PROMPT,
     QUESTION_ABBREVIATIONS_PROMPT,
     QUESTION_ENTITIES_PROMPT,
 )
-from light_llm_wiki.query.schemas import QueryAnswer, QueryStory
+from light_llm_wiki.query.schemas import DocumentRelevance, QueryAnswer, QueryStory
+
+
+DEEP_WIKI_LIMIT = 5
+DEEP_WIKI_MAX_DISTANCE = 0.6
+DEEP_WIKI_TYPES = ["direction", "document", "entity"]
 
 
 @dataclass
@@ -43,6 +52,9 @@ class QueryResult:
     entities_missing: list[str] = field(default_factory=list)
     relations: list[EntityRelation] = field(default_factory=list)
     documents: list[Document] = field(default_factory=list)
+    wiki_pages: list[WikiPage] = field(default_factory=list)
+    deep_doc_summaries: dict[int, str] = field(default_factory=dict)
+    deep_used: bool = False
     answer: str = ""
     unsupported: list[str] = field(default_factory=list)
     trace: str = ""
@@ -131,12 +143,27 @@ def _format_relations_block(
     return "\n".join(lines) if lines else "(связей не нашлось)"
 
 
-def _format_documents_block(documents: list[Document]) -> str:
+def _format_documents_block(
+    documents: list[Document],
+    summaries: dict[int, str] | None = None,
+) -> str:
     if not documents:
         return "(документов не нашлось)"
     parts = []
     for d in documents:
-        parts.append(f"### {d.title}\n{d.content}")
+        body = summaries.get(d.id) if summaries else None
+        if not body:
+            body = d.content
+        parts.append(f"### {d.title}\n{body}")
+    return "\n\n".join(parts)
+
+
+def _format_wiki_block(pages: list[WikiPage]) -> str:
+    if not pages:
+        return "(wiki-страниц не привлекалось)"
+    parts = []
+    for p in pages:
+        parts.append(f"### {p.title} ({p.type})\n{p.content}")
     return "\n\n".join(parts)
 
 
@@ -260,9 +287,49 @@ def _render_trace(result: QueryResult, by_id: dict[int, Entity]) -> str:
 
     if not result.abbreviations_found and not result.entities_found:
         lines.append("")
-        lines.append(
-            "По выделенным понятиям в базе знаний ничего не нашлось."
-        )
+        if result.deep_used:
+            lines.append(
+                "По выделенным понятиям в базе ничего не нашлось — "
+                "задействован глубокий поиск."
+            )
+        else:
+            lines.append(
+                "По выделенным понятиям в базе знаний ничего не нашлось."
+            )
+
+    if result.deep_used:
+        lines.append("")
+        lines.append("## Глубокий поиск")
+        lines.append("")
+        if result.wiki_pages:
+            lines.append("Wiki-страницы по смысловой близости к вопросу:")
+            for p in result.wiki_pages:
+                preview = " ".join(p.content.split())
+                if len(preview) > 200:
+                    preview = preview[:200].rstrip() + "…"
+                lines.append(f"- «{p.title}» ({p.type}): {preview}")
+            lines.append("")
+        else:
+            lines.append("Wiki-страниц по смысловой близости не нашлось.")
+            lines.append("")
+        relevant_docs = [
+            d for d in result.documents
+            if result.deep_doc_summaries.get(d.id, "").strip()
+        ]
+        if relevant_docs:
+            lines.append("Документы, признанные LLM релевантными вопросу:")
+            lines.append("")
+            for d in relevant_docs:
+                summary = result.deep_doc_summaries.get(d.id, "").strip()
+                lines.append(f"### «{d.title}»")
+                lines.append(summary)
+                lines.append("")
+        else:
+            lines.append(
+                "По исходным документам направления LLM ничего "
+                "релевантного не выделил."
+            )
+            lines.append("")
 
     lines.append("## Ответ")
     lines.append("")
@@ -286,6 +353,7 @@ def answer_question(
     *,
     embedding_threshold: float = 0.5,
     narrate: bool = False,
+    deep: bool = False,
 ) -> QueryResult:
     result = QueryResult(question=question)
 
@@ -379,12 +447,56 @@ def answer_question(
 
     documents = list_documents_by_ids(conn, sorted(document_ids))
 
+    if deep and not result.abbreviations_found and not result.entities_found:
+        result.deep_used = True
+        try:
+            vec = embedder.embed(question)
+        except Exception as e:
+            print(f"[query] embedder failed for deep wiki search: {e}")
+            vec = None
+        if vec is not None:
+            try:
+                result.wiki_pages = find_similar_wiki_pages(
+                    conn,
+                    direction_key,
+                    vec,
+                    types=DEEP_WIKI_TYPES,
+                    limit=DEEP_WIKI_LIMIT,
+                    max_distance=DEEP_WIKI_MAX_DISTANCE,
+                )
+            except Exception as e:
+                print(f"[query] deep wiki search failed: {e}")
+
+        for doc in list_documents_by_direction(conn, direction_key):
+            try:
+                dr = llm.complete_json(
+                    DEEP_DOC_RELEVANCE_PROMPT.format(
+                        question=question,
+                        title=doc.title,
+                        content=doc.content,
+                    ),
+                    DocumentRelevance,
+                )
+            except Exception as e:
+                print(
+                    f"[query] LLM failed on deep relevance for doc {doc.id}: "
+                    f"{e}; skipping"
+                )
+                continue
+            if dr.relevant and dr.summary.strip():
+                documents.append(doc)
+                result.deep_doc_summaries[doc.id] = dr.summary.strip()
+
     by_id: dict[int, Entity] = {e.id: e for e in primary_entities + neighbors}
 
     abbreviations_block = _format_abbreviations_block(result.abbreviations_found)
     entities_block = _format_entities_block(result.entities_found, neighbors)
     relations_block = _format_relations_block(relations, by_id)
-    documents_block = _format_documents_block(documents)
+    documents_block = _format_documents_block(
+        documents,
+        result.deep_doc_summaries if result.deep_used else None,
+    )
+    wiki_block = _format_wiki_block(result.wiki_pages)
 
     try:
         answer_obj = llm.complete_json(
@@ -397,6 +509,7 @@ def answer_question(
                 entities_block=entities_block,
                 relations_block=relations_block,
                 documents_block=documents_block,
+                wiki_block=wiki_block,
             ),
             QueryAnswer,
         )
@@ -432,6 +545,7 @@ def answer_question(
             entities_missing_block=_format_missing_block(result.entities_missing),
             relations_block=relations_block,
             documents_block=documents_block,
+            wiki_block=wiki_block,
             answer=answer_text,
             unsupported_block=_format_unsupported_block(unsupported),
         )
