@@ -4,9 +4,11 @@ from light_llm_wiki.db import (
     delete_stage_relation,
     get_document,
     insert_stage_relation,
+    list_stage_abbreviations,
     list_stage_entities,
     update_stage_relation,
 )
+from light_llm_wiki.document_processor import abbreviation_block
 from light_llm_wiki.document_processor.pipeline import StageInputs
 from light_llm_wiki.document_processor.prompts import (
     RELATION_DESCRIPTION_PROMPT,
@@ -37,6 +39,9 @@ def extract_relations(inputs: StageInputs) -> None:
     by_id: dict[int, StageEntity] = {e.id: e for e in entities}
     valid_ids = set(by_id)
     entities_block = _format_entities_block(entities)
+    abbrev_block = abbreviation_block.format_for_prompt(
+        list_stage_abbreviations(inputs.conn)
+    )
 
     clear_stage_relations(inputs.conn)
 
@@ -49,6 +54,7 @@ def extract_relations(inputs: StageInputs) -> None:
             source_id=source.id,
             source_name=source.name,
             entities_block=entities_block,
+            abbreviations_block=abbrev_block,
         )
         try:
             candidates = inputs.llm.complete_json(prompt, RelationCandidatesList)
@@ -85,6 +91,7 @@ def extract_relations(inputs: StageInputs) -> None:
             source_name=source.name,
             target_name=target.name,
             relation_type=relation_type,
+            abbreviations_block=abbrev_block,
         )
         try:
             lookup = inputs.llm.complete_json(prompt, RelationLookup)

@@ -1,3 +1,5 @@
+import re
+
 from light_llm_wiki.db import (
     clear_stage,
     find_abbreviation_entities_by_name,
@@ -14,6 +16,33 @@ from light_llm_wiki.document_processor.schemas import (
     AbbreviationsList,
     ExpansionLookup,
 )
+
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_for_substring(text: str) -> str:
+    return _WHITESPACE_RE.sub(" ", text).strip().lower()
+
+
+def _verify_expansion(
+    name: str, lookup: ExpansionLookup, content: str
+) -> str | None:
+    if lookup.expansion is None:
+        return None
+    if lookup.quote is None:
+        print(
+            f"[abbreviations] rejected hallucinated expansion for {name!r}: "
+            "quote not provided"
+        )
+        return None
+    if _normalize_for_substring(lookup.quote) not in _normalize_for_substring(content):
+        print(
+            f"[abbreviations] rejected hallucinated expansion for {name!r}: "
+            "quote not found in document"
+        )
+        return None
+    return lookup.expansion
 
 
 def extract_abbreviations(inputs: StageInputs) -> None:
@@ -41,13 +70,14 @@ def extract_abbreviations(inputs: StageInputs) -> None:
         expansion_prompt = EXPANSION_PROMPT.format(content=doc.content, name=name)
         try:
             lookup = inputs.llm.complete_json(expansion_prompt, ExpansionLookup)
-            description = lookup.expansion
         except Exception as e:
             print(
                 f"[abbreviations] LLM failed on expansion of {name!r}: {e}; "
                 "leaving description empty"
             )
             description = None
+        else:
+            description = _verify_expansion(name, lookup, doc.content)
         update_stage_entity(
             inputs.conn,
             stage_id,

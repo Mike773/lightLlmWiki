@@ -8,6 +8,7 @@ from light_llm_wiki.db import (
     list_stage_relations,
     update_entity,
     update_entity_relation,
+    upsert_entity_document,
 )
 from light_llm_wiki.document_processor.pipeline import StageInputs
 
@@ -37,17 +38,37 @@ def promote_to_main(inputs: StageInputs) -> None:
                 embedding=stage.embedding,
             )
         else:
+            if (
+                is_abbreviation
+                and existing.is_abbreviation
+                and existing.has_expansion
+            ):
+                if (
+                    stage.description is not None
+                    and stage.description != existing.description
+                ):
+                    print(
+                        f"[promote] expansion conflict for {stage.name!r}: "
+                        f"keeping existing {existing.description!r}, "
+                        f"ignoring new {stage.description!r}"
+                    )
+                final_description = existing.description
+                final_has_expansion = True
+            else:
+                final_description = stage.description
+                final_has_expansion = has_expansion
             update_entity(
                 inputs.conn,
                 existing.id,
-                description=stage.description,
+                description=final_description,
                 is_abbreviation=is_abbreviation,
-                has_expansion=has_expansion,
+                has_expansion=final_has_expansion,
                 embedding=stage.embedding,
             )
             entity_id = existing.id
 
         stage_entity_to_entity_id[stage.id] = entity_id
+        upsert_entity_document(inputs.conn, entity_id, doc.id)
 
     for rel in list_stage_relations(inputs.conn):
         source_entity_id = stage_entity_to_entity_id.get(rel.source_stage_id)

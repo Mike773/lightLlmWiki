@@ -11,7 +11,9 @@ from light_llm_wiki.db import (
     get_entity_by_name,
     insert_wiki_page,
     list_documents_by_direction,
+    list_documents_for_entity,
     list_entities_by_direction,
+    list_entities_for_document,
     list_entity_relations_by_direction,
     list_entity_relations_by_document,
     list_entity_relations_by_entity,
@@ -19,6 +21,7 @@ from light_llm_wiki.db import (
     update_wiki_page,
     update_wiki_page_related_ids,
 )
+from light_llm_wiki.document_processor import abbreviation_block
 from light_llm_wiki.document_processor.pipeline import StageInputs
 from light_llm_wiki.document_processor.prompts import (
     WIKI_DIRECTION_OVERVIEW_PROMPT,
@@ -129,17 +132,12 @@ def _build_document_page_content(
     doc: Document,
     relations: list[EntityRelation],
     by_id: dict[int, Entity],
+    entity_ids: list[int],
 ) -> str:
     parts = [f"# {doc.title}", "", "## Метаданные", ""]
     parts.append(f"- ID документа: {doc.id}")
     parts.append(f"- Статус: {doc.status}")
     parts.append(f"- Использовать чанкинг: {doc.use_chunking}")
-
-    entity_ids: list[int] = []
-    for rel in relations:
-        for eid in (rel.source_entity_id, rel.target_entity_id):
-            if eid not in entity_ids:
-                entity_ids.append(eid)
 
     parts += ["", "## Извлечённые сущности", ""]
     if not entity_ids:
@@ -251,6 +249,7 @@ def _upsert_entity_page(
     entity: Entity,
     by_id: dict[int, Entity],
     docs_by_id: dict[int, Document],
+    abbreviations_block: str,
 ) -> None:
     relations = list_entity_relations_by_entity(inputs.conn, entity.id)
 
@@ -258,6 +257,9 @@ def _upsert_entity_page(
     for rel in relations:
         if rel.document_id is not None and rel.document_id not in doc_ids:
             doc_ids.append(rel.document_id)
+    for d in list_documents_for_entity(inputs.conn, entity.id):
+        if d.id not in doc_ids:
+            doc_ids.append(d.id)
     documents = [docs_by_id[d] for d in doc_ids if d in docs_by_id]
 
     relations_block = _build_entity_relations_block_for_prompt(
@@ -269,6 +271,7 @@ def _upsert_entity_page(
         name=entity.name,
         type=entity.type,
         description=entity.description or "(описание не зафиксировано)",
+        abbreviations_block=abbreviations_block,
         relations_block=relations_block,
         documents_block=documents_block,
     )
@@ -345,8 +348,11 @@ def _upsert_document_page(
         for eid in (rel.source_entity_id, rel.target_entity_id):
             if eid not in entity_ids:
                 entity_ids.append(eid)
+    for e in list_entities_for_document(inputs.conn, doc.id):
+        if e.id not in entity_ids:
+            entity_ids.append(e.id)
 
-    content = _build_document_page_content(doc, relations, by_id)
+    content = _build_document_page_content(doc, relations, by_id, entity_ids)
 
     embed_text_parts = [doc.title, doc.content[:4000]]
     embed_text = "\n\n".join(s for s in embed_text_parts if s)
@@ -391,6 +397,7 @@ def _upsert_direction_page(
     documents: list[Document],
     relations: list[EntityRelation],
     by_id: dict[int, Entity],
+    abbreviations_block: str,
 ) -> None:
     entities_block_lines = []
     for ent in entities:
@@ -418,6 +425,7 @@ def _upsert_direction_page(
     prompt = WIKI_DIRECTION_OVERVIEW_PROMPT.format(
         direction_name=direction.name,
         direction_description=direction.description or "(описание не задано)",
+        abbreviations_block=abbreviations_block,
         entities_block=entities_block,
         relations_block=relations_block,
         documents_block=documents_block,
@@ -542,6 +550,11 @@ def update_wiki(inputs: StageInputs) -> None:
     by_id: dict[int, Entity] = {e.id: e for e in direction_entities}
     docs_by_id: dict[int, Document] = {d.id: d for d in direction_documents}
 
+    abbrev_items = [
+        (e.name, e.description) for e in direction_entities if e.is_abbreviation
+    ]
+    abbrev_block = abbreviation_block.format_for_prompt(abbrev_items)
+
     affected_entity_ids: list[int] = []
     seen_affected: set[int] = set()
     for stage in list_stage_entities_full(inputs.conn):
@@ -562,7 +575,14 @@ def update_wiki(inputs: StageInputs) -> None:
         if entity is None:
             continue
         try:
-            _upsert_entity_page(inputs, doc.direction_key, entity, by_id, docs_by_id)
+            _upsert_entity_page(
+                inputs,
+                doc.direction_key,
+                entity,
+                by_id,
+                docs_by_id,
+                abbrev_block,
+            )
         except Exception as e:
             print(
                 f"[wiki] failed to build wiki page for entity "
@@ -581,6 +601,7 @@ def update_wiki(inputs: StageInputs) -> None:
         direction_documents,
         direction_relations,
         by_id,
+        abbrev_block,
     )
 
     _refresh_related_page_ids(

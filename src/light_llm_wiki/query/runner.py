@@ -9,6 +9,7 @@ from light_llm_wiki.db import (
     find_nearest_entity_by_type,
     get_entity_by_name_ci,
     list_documents_by_ids,
+    list_documents_for_entity,
     list_entity_relations_by_entity,
 )
 from light_llm_wiki.document_processor.schemas import (
@@ -357,6 +358,8 @@ def answer_question(
                 neighbor_ids.add(other)
             if rel.document_id is not None:
                 document_ids.add(rel.document_id)
+        for d in list_documents_for_entity(conn, ent.id):
+            document_ids.add(d.id)
 
     neighbors: list[Entity] = []
     if neighbor_ids:
@@ -388,6 +391,9 @@ def answer_question(
             ANSWER_PROMPT.format(
                 question=question,
                 abbreviations_block=abbreviations_block,
+                abbreviations_missing_block=_format_missing_block(
+                    result.abbreviations_missing
+                ),
                 entities_block=entities_block,
                 relations_block=relations_block,
                 documents_block=documents_block,

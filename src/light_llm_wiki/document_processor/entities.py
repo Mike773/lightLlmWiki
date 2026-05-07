@@ -6,6 +6,7 @@ from light_llm_wiki.db import (
     list_stage_abbreviations,
     update_stage_entity,
 )
+from light_llm_wiki.document_processor import abbreviation_block
 from light_llm_wiki.document_processor.pipeline import StageInputs
 from light_llm_wiki.document_processor.prompts import (
     ENTITIES_PROMPT,
@@ -17,32 +18,14 @@ from light_llm_wiki.document_processor.schemas import (
 )
 
 
-def _format_abbreviations_block(items: list[tuple[str, str | None]]) -> str:
-    if not items:
-        return "(в документе аббревиатур не обнаружено)"
-    lines = []
-    for name, description in items:
-        if description is None:
-            lines.append(f"- {name} — расшифровка не найдена в документе")
-        else:
-            lines.append(f"- {name} — {description}")
-    return "\n".join(lines)
-
-
-def _format_abbreviations_exclude_block(items: list[tuple[str, str | None]]) -> str:
-    if not items:
-        return "(в документе аббревиатур не обнаружено)"
-    return "\n".join(f"- {name}" for name, _ in items)
-
-
 def extract_entities(inputs: StageInputs) -> None:
     if inputs.embedder is None:
         raise ValueError("entities stage requires an embedder")
 
     doc = get_document(inputs.conn, inputs.document_id)
     abbreviations = list_stage_abbreviations(inputs.conn)
-    abbrev_block = _format_abbreviations_block(abbreviations)
-    abbrev_exclude_block = _format_abbreviations_exclude_block(abbreviations)
+    abbrev_block = abbreviation_block.format_for_prompt(abbreviations)
+    abbrev_exclude_block = abbreviation_block.format_exclude_list(abbreviations)
 
     names_prompt = ENTITIES_PROMPT.format(
         content=doc.content,
