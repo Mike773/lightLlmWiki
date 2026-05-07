@@ -744,6 +744,39 @@ def find_wiki_page_for_direction(
     return WikiPage(*row) if row else None
 
 
+def find_similar_wiki_pages(
+    conn: psycopg.Connection,
+    direction_key: str,
+    embedding: list[float],
+    types: list[str],
+    limit: int,
+    max_distance: float,
+) -> list[WikiPage]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, direction_key, type, entity_id, document_id, title,
+                   content, related_page_ids, entity_ids, relation_ids,
+                   embedding <=> %s::vector AS distance
+            FROM llm_wiki_rag.wiki_pages
+            WHERE direction_key = %s
+              AND type = ANY(%s)
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (embedding, direction_key, types, embedding, limit),
+        )
+        rows = cur.fetchall()
+    pages: list[WikiPage] = []
+    for row in rows:
+        distance = row[-1]
+        if distance is None or distance > max_distance:
+            continue
+        pages.append(WikiPage(*row[:-1]))
+    return pages
+
+
 def insert_wiki_page(
     conn: psycopg.Connection,
     *,

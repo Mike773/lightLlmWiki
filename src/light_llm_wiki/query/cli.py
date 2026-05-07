@@ -44,6 +44,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--deep",
+        action="store_true",
+        help=(
+            "if no abbreviations or entities from the question were resolved "
+            "in the knowledge base, expand the search: cosine over wiki pages "
+            "(direction, document, entity) by question embedding, plus an LLM "
+            "pass over every source document of the direction picking only "
+            "relevant ones with a per-document summary. Adds N+1 extra LLM "
+            "calls (N = number of documents in the direction)."
+        ),
+    )
+    parser.add_argument(
         "--dsn",
         default=os.environ.get("DSN", DEFAULT_DSN),
         help=f"PostgreSQL DSN (default: env DSN or {DEFAULT_DSN})",
@@ -134,6 +146,7 @@ def main(argv: list[str] | None = None) -> None:
             question,
             embedding_threshold=args.embedding_threshold,
             narrate=args.narrate,
+            deep=args.deep,
         )
         if args.narrate and result.story is not None:
             sys.stdout.write(result.story)

@@ -8,3 +8,8 @@ class QueryAnswer(BaseModel):
 
 class QueryStory(BaseModel):
     story: str
+
+
+class DocumentRelevance(BaseModel):
+    relevant: bool
+    summary: str = ""
